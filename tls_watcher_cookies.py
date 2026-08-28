@@ -15,8 +15,9 @@ from playwright.sync_api import sync_playwright
 APPOINTMENT_URL = "https://visas-fr.tlscontact.com/workflow/appointment-booking/tnTUN2fr/28524102"
 
 NO_SLOT_TEXTS = [
-    "aucun rendez-vous disponible",
-    "aucun rendez vous disponible",
+    "nous n'avons actuellement plus de créneaux de rendez-vous disponibles",
+    "nous n avons actuellement plus de créneaux de rendez-vous disponibles",
+    "aucun créneau n'est disponible pour le moment",
     "no appointment available",
     "no slots available",
 ]
