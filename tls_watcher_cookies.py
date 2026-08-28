@@ -1,1 +1,135 @@
-tls_watcher_cookies.py.
+"""
+tls_watcher_cookies.py — Utilise les cookies exportés depuis Cookie-Editor
+(Kiwi Browser) pour vérifier la disponibilité de rendez-vous TLScontact,
+sans avoir besoin de se reconnecter avec email/mot de passe.
+"""
+
+import json
+import os
+import sys
+from datetime import datetime
+
+import requests
+from playwright.sync_api import sync_playwright
+
+APPOINTMENT_URL = "https://visas-fr.tlscontact.com/workflow/appointment-booking/tnTUN2fr/28524102"
+
+NO_SLOT_TEXTS = [
+    "aucun rendez-vous disponible",
+    "aucun rendez vous disponible",
+    "no appointment available",
+    "no slots available",
+]
+
+LOGIN_PAGE_TEXTS = [
+    "se connecter",
+    "log in",
+    "sign in",
+]
+
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+COOKIES_RAW = os.environ.get("TLS_COOKIES", "")
+
+SAME_SITE_MAP = {
+    "no_restriction": "None",
+    "unspecified": "None",
+    "lax": "Lax",
+    "strict": "Strict",
+}
+
+
+def log(msg: str) -> None:
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+
+
+def send_telegram(message: str) -> None:
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        log("[!] TELEGRAM_TOKEN / TELEGRAM_CHAT_ID manquants.")
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    try:
+        r = requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": message}, timeout=15)
+        if r.status_code != 200:
+            log(f"[!] Erreur Telegram: {r.status_code} {r.text}")
+    except Exception as e:
+        log(f"[!] Impossible d'envoyer l'alerte Telegram: {e}")
+
+
+def convert_cookies(raw_cookies):
+    converted = []
+    for c in raw_cookies:
+        cookie = {
+            "name": c["name"],
+            "value": c["value"],
+            "domain": c["domain"],
+            "path": c.get("path", "/"),
+            "httpOnly": c.get("httpOnly", False),
+            "secure": c.get("secure", False),
+            "sameSite": SAME_SITE_MAP.get(c.get("sameSite", "lax"), "Lax"),
+        }
+        if c.get("expirationDate"):
+            cookie["expires"] = c["expirationDate"]
+        else:
+            cookie["expires"] = -1
+        converted.append(cookie)
+    return converted
+
+
+def main():
+    if not COOKIES_RAW:
+        log("[!] TLS_COOKIES manquant.")
+        sys.exit(1)
+
+    try:
+        raw_cookies = json.loads(COOKIES_RAW)
+    except json.JSONDecodeError:
+        log("[!] TLS_COOKIES n'est pas un JSON valide.")
+        sys.exit(1)
+
+    cookies = convert_cookies(raw_cookies)
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Linux; Android 14; SM-S938B) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+            ),
+            locale="fr-FR",
+        )
+        context.add_cookies(cookies)
+        page = context.new_page()
+
+        try:
+            page.goto(APPOINTMENT_URL, timeout=45000)
+            page.wait_for_timeout(4000)
+            content = page.content().lower()
+
+            if any(t in content for t in LOGIN_PAGE_TEXTS):
+                log("Session expirée : la page de connexion s'affiche.")
+                send_telegram(
+                    "⚠️ Ta session TLScontact a expiré. Refais l'export des cookies "
+                    "depuis Kiwi Browser et mets à jour le secret TLS_COOKIES sur GitHub."
+                )
+                return
+
+            no_slot_found = any(t in content for t in NO_SLOT_TEXTS)
+
+            if no_slot_found:
+                log("Toujours aucun créneau.")
+            else:
+                log("!!! Un créneau semble disponible !")
+                send_telegram(
+                    "🚨 Un créneau semble disponible sur TLScontact Tunis !\n"
+                    f"{APPOINTMENT_URL}\n"
+                    "Vérifie et réserve vite."
+                )
+        except Exception as e:
+            log(f"Erreur pendant la vérification: {e}")
+        finally:
+            browser.close()
+
+
+if __name__ == "__main__":
+    main()
