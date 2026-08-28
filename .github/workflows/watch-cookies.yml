@@ -1,135 +1,105 @@
-"""
-tls_watcher_cookies.py — Utilise les cookies exportés depuis Cookie-Editor
-(Kiwi Browser) pour vérifier la disponibilité de rendez-vous TLScontact,
-sans avoir besoin de se reconnecter avec email/mot de passe.
-"""
-
-import json
-import os
-import sys
-from datetime import datetime
-
-import requests
-from playwright.sync_api import sync_playwright
-
-APPOINTMENT_URL = "https://visas-fr.tlscontact.com/workflow/appointment-booking/tnTUN2fr/28524102"
-
-NO_SLOT_TEXTS = [
-    "actuellement plus de créneaux de rendez-vous disponibles",
-    "disponible pour le moment",
-    "no appointment available",
-    "no slots available",
+[
+    {
+        "name": "__cf_bm",
+        "value": "jA3WKzpo9nRIfirMsUM14pqRRtyfwY5zUOvnoy_TYbM-1787930659.5612867-1.0.1.1-cGit3aW9X.EPuMUlju6NfYRR_Xak8pHvVt8Sg2mMBliHaIJYSc2VR1Msjj7ue1f6.OwzONVagJ6umMKYrbWXIbBK7UhLeZzpTl57AzmrNyScc0qn3z2sD6QMInnu9nvr",
+        "domain": ".visas-fr.tlscontact.com",
+        "hostOnly": false,
+        "path": "/",
+        "secure": true,
+        "httpOnly": true,
+        "sameSite": "no_restriction",
+        "session": false,
+        "firstPartyDomain": "",
+        "partitionKey": null,
+        "expirationDate": 1787932459.552,
+        "storeId": null
+    },
+    {
+        "name": "__cfwaitingroom_appt_booking",
+        "value": "Chh3R1dycmFTek1oTUFFK2JzMWhTN3l3PT0SgAJnVnNRQnlXaklmT3EyMWNnZ0F0Z0swNUNiTFZLckJ3MFcvZDhzY3lDNG1ZOGV2THZYQTlySC9uL2NCVlNIUnZ4ajRmcFBKWHRPaXpZa3NmRStNK3RlL0pma0d0VXhES2FQdXFCenNTc0tqQzJhdmNXbkNZWHozMkE4cGtsaFN0N1N1dGYrS1JQd29kQ1ZuYVVUSlRYOVVwQ3JUUE4xOVRyUmM5OVlUS3Z2RVZwc09LS3pnTUpkNnBDelJEenVGWFRSUS9uWXlHeXVtZWZmcVo4ajdmank0UHVKdXE0VlJKVVJUWjF6c3pLM04rOHJWQnhnc2MrZkdTVVorcE9ac0Vj",
+        "domain": ".visas-fr.tlscontact.com",
+        "hostOnly": false,
+        "path": "/",
+        "secure": false,
+        "httpOnly": true,
+        "sameSite": "lax",
+        "session": false,
+        "firstPartyDomain": "",
+        "partitionKey": null,
+        "expirationDate": 1787931864.473,
+        "storeId": null
+    },
+    {
+        "name": "3b2754bc52fcd1f55fe7bcec8dc028aa",
+        "value": "95951476f815801d1407c637f37dd4c1",
+        "domain": "visas-fr.tlscontact.com",
+        "hostOnly": true,
+        "path": "/",
+        "secure": true,
+        "httpOnly": true,
+        "sameSite": "no_restriction",
+        "session": true,
+        "firstPartyDomain": "",
+        "partitionKey": null,
+        "storeId": null
+    },
+    {
+        "name": "_dd_s",
+        "value": "rum=1&id=cc154dd8-1170-476e-8f75-4be48b610711&created=1787930659446&expire=1787931611088",
+        "domain": "visas-fr.tlscontact.com",
+        "hostOnly": true,
+        "path": "/",
+        "secure": false,
+        "httpOnly": false,
+        "sameSite": "strict",
+        "session": false,
+        "firstPartyDomain": "",
+        "partitionKey": null,
+        "expirationDate": 1787931611,
+        "storeId": null
+    },
+    {
+        "name": "lang",
+        "value": "fr-fr",
+        "domain": "visas-fr.tlscontact.com",
+        "hostOnly": true,
+        "path": "/",
+        "secure": false,
+        "httpOnly": false,
+        "sameSite": "lax",
+        "session": true,
+        "firstPartyDomain": "",
+        "partitionKey": null,
+        "storeId": null
+    },
+    {
+        "name": "tls_auth",
+        "value": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U2VwYjExN2t2NkQybXEwS3BMNF9yOTVxSktjZ0ExVTZvWHVtMUZzY2dFIn0.eyJleHAiOjE3ODc5MzQzMDAsImlhdCI6MTc4NzkzMDcwMCwiYXV0aF90aW1lIjoxNzg3OTMwNzAwLCJqdGkiOiJhMDQzZTdjNC1iNjA5LTQxMDEtOWJhOC00MWIyYjc1YmY0NDYiLCJpc3MiOiJodHRwczovL2kyLWF1dGgudmlzYXMtZnIudGxzY29udGFjdC5jb20vYXV0aC9yZWFsbXMvYXRsYXMiLCJhdWQiOiJhY2NvdW50Iiwic3ViIjoiZTJhNzAwZTktMTA0MS00NGE5LWJmZjgtODNjYzFiMjZlODdmIiwidHlwIjoiQmVhcmVyIiwiYXpwIjoidGxzY2l0aXplbiIsIm5vbmNlIjoiZmY4MWJiYjYtNWMwZS00YmE5LTgzZTEtZDM0NzdkZDQ0NjJkIiwic2Vzc2lvbl9zdGF0ZSI6IjhhNWY3NGIzLTg2M2MtNDM4Yy1hMjExLTg1ODk0YzUyNTcwMiIsImFjciI6IjEiLCJhbGxvd2VkLW9yaWdpbnMiOlsiKiJdLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsiZGVmYXVsdC1yb2xlcy1hdGxhcyIsIlJPTEVfVVNFUiIsIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6Im9wZW5pZCBhdGxhcyBlbWFpbCBwcm9maWxlIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsInJvbGVzIjpbImRlZmF1bHQtcm9sZXMtYXRsYXMiLCJST0xFX1VTRVIiLCJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl0sInByZWZlcnJlZF91c2VybmFtZSI6ImF5bWVudXNAaG90bWFpbC5jb20iLCJsb2NhbGUiOiJmciIsImVtYWlsIjoiYXltZW51c0Bob3RtYWlsLmNvbSJ9.WHIMmPoUXBVQ3O9-9LIbxsalxIGUmxtyKRrDoX1kEAveMODW38mnNnt_wS7GyfF6hUNLSbYhoIrA0V1dW41-6Qj4uQq2TZb4W4NSGsCY2BcHl1w5pl7IBY82snPiHsA3VShjvkdKjpEwu3uUN663NVkpbqhrW9v-hDbMZ5aL7aedvw6hiTMtkjM8fIOJBcK0q5UQJq0WZDnopRo_UN8GteUGH4s5pa-d4xojS4KJ4ClCMXfXpnxhyhLUAtMs2vgWjVu0iDnN69ptoBXOles22xHb0alaI7HiTuC6OADGcmGcRXb624P7pZbfYovHXXrvotvxyTyUVvEZ-FCgiYrWdg",
+        "domain": ".tlscontact.com",
+        "hostOnly": false,
+        "path": "/",
+        "secure": true,
+        "httpOnly": true,
+        "sameSite": "lax",
+        "session": false,
+        "firstPartyDomain": "",
+        "partitionKey": null,
+        "expirationDate": 1787934300.414,
+        "storeId": null
+    },
+    {
+        "name": "tls_id",
+        "value": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI4U2VwYjExN2t2NkQybXEwS3BMNF9yOTVxSktjZ0ExVTZvWHVtMUZzY2dFIn0.eyJleHAiOjE3ODc5MzQzMDAsImlhdCI6MTc4NzkzMDcwMCwiYXV0aF90aW1lIjoxNzg3OTMwNzAwLCJqdGkiOiIzYmFjMTQ0NC0zMGUyLTQyODgtYmUwZC05NGZkZTk4MDg3YjYiLCJpc3MiOiJodHRwczovL2kyLWF1dGgudmlzYXMtZnIudGxzY29udGFjdC5jb20vYXV0aC9yZWFsbXMvYXRsYXMiLCJhdWQiOiJ0bHNjaXRpemVuIiwic3ViIjoiZTJhNzAwZTktMTA0MS00NGE5LWJmZjgtODNjYzFiMjZlODdmIiwidHlwIjoiSUQiLCJhenAiOiJ0bHNjaXRpemVuIiwibm9uY2UiOiJmZjgxYmJiNi01YzBlLTRiYTktODNlMS1kMzQ3N2RkNDQ2MmQiLCJzZXNzaW9uX3N0YXRlIjoiOGE1Zjc0YjMtODYzYy00MzhjLWEyMTEtODU4OTRjNTI1NzAyIiwiYXRfaGFzaCI6IjFiX0NianI4amJKczlOb2pwVXk1RWciLCJhY3IiOiIxIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsInByZWZlcnJlZF91c2VybmFtZSI6ImF5bWVudXNAaG90bWFpbC5jb20iLCJsb2NhbGUiOiJmciIsImVtYWlsIjoiYXltZW51c0Bob3RtYWlsLmNvbSJ9.d0QTQRrboPupCr9DuoM_W8q5JVL6LCjWXq3jE7mH-lHWQqFtEu1xk8-XUoHb762y086LuMUDjI3GoIkooTx4rjMRwTo0MeGc5ZV6GKxmy_S5tp_lRn2fEHQUN1DJL-ecznugshx4HjfXOSDvpL7u5mmfa3nkxelZBPwhoyaJVC_v815_ewyloa6xd5T2PKQmv7T-dqgtlmMbqnwA8RbILihb_e-EmhZMsjuwqutpAz3EbgT7zolBZfaRZcgCvVAoHfN6C90gapMKEVwcT_X5NkLoA3FoaNqYLSiXOpQEwDqQ6afX-AKifvnCY2E4CS4pEUlQZb8R3ST4XSosUJjThA",
+        "domain": ".tlscontact.com",
+        "hostOnly": false,
+        "path": "/",
+        "secure": true,
+        "httpOnly": true,
+        "sameSite": "lax",
+        "session": false,
+        "firstPartyDomain": "",
+        "partitionKey": null,
+        "expirationDate": 1787932500.414,
+        "storeId": null
+    }
 ]
-
-LOGIN_PAGE_TEXTS = [
-    "se connecter",
-    "log in",
-    "sign in",
-]
-
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
-COOKIES_RAW = os.environ.get("TLS_COOKIES", "")
-
-SAME_SITE_MAP = {
-    "no_restriction": "None",
-    "unspecified": "None",
-    "lax": "Lax",
-    "strict": "Strict",
-}
-
-
-def log(msg: str) -> None:
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
-
-
-def send_telegram(message: str) -> None:
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        log("[!] TELEGRAM_TOKEN / TELEGRAM_CHAT_ID manquants.")
-        return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    try:
-        r = requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": message}, timeout=15)
-        if r.status_code != 200:
-            log(f"[!] Erreur Telegram: {r.status_code} {r.text}")
-    except Exception as e:
-        log(f"[!] Impossible d'envoyer l'alerte Telegram: {e}")
-
-
-def convert_cookies(raw_cookies):
-    converted = []
-    for c in raw_cookies:
-        cookie = {
-            "name": c["name"],
-            "value": c["value"],
-            "domain": c["domain"],
-            "path": c.get("path", "/"),
-            "httpOnly": c.get("httpOnly", False),
-            "secure": c.get("secure", False),
-            "sameSite": SAME_SITE_MAP.get(c.get("sameSite", "lax"), "Lax"),
-        }
-        if c.get("expirationDate"):
-            cookie["expires"] = c["expirationDate"]
-        else:
-            cookie["expires"] = -1
-        converted.append(cookie)
-    return converted
-
-
-def main():
-    if not COOKIES_RAW:
-        log("[!] TLS_COOKIES manquant.")
-        sys.exit(1)
-
-    try:
-        raw_cookies = json.loads(COOKIES_RAW)
-    except json.JSONDecodeError:
-        log("[!] TLS_COOKIES n'est pas un JSON valide.")
-        sys.exit(1)
-
-    cookies = convert_cookies(raw_cookies)
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Linux; Android 14; SM-S938B) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
-            ),
-            locale="fr-FR",
-        )
-        context.add_cookies(cookies)
-        page = context.new_page()
-
-        try:
-            page.goto(APPOINTMENT_URL, timeout=45000)
-            page.wait_for_timeout(4000)
-            content = page.content().lower()
-
-            if any(t in content for t in LOGIN_PAGE_TEXTS):
-                log("Session expirée : la page de connexion s'affiche.")
-                send_telegram(
-                    "⚠️ Ta session TLScontact a expiré. Refais l'export des cookies "
-                    "depuis Kiwi Browser et mets à jour le secret TLS_COOKIES sur GitHub."
-                )
-                return
-
-            no_slot_found = any(t in content for t in NO_SLOT_TEXTS)
-
-            if no_slot_found:
-                log("Toujours aucun créneau.")
-            else:
-                log("!!! Un créneau semble disponible !")
-                send_telegram(
-                    "🚨 Un créneau semble disponible sur TLScontact Tunis !\n"
-                    f"{APPOINTMENT_URL}\n"
-                    "Vérifie et réserve vite."
-                )
-        except Exception as e:
-            log(f"Erreur pendant la vérification: {e}")
-        finally:
-            browser.close()
-
-
-if __name__ == "__main__":
-    main()
